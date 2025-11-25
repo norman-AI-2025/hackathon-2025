@@ -1,0 +1,81 @@
+import pandas as pd
+# NOTE: torch is often required for the transformers library
+!pip install torch transformers -q
+
+try:
+    from transformers import pipeline
+    # Initialize the sentiment analysis pipeline globally for efficiency
+    classifier = pipeline("sentiment-analysis", model="distilbert-base-uncased-finetuned-sst-2-english")
+    print("Sentiment classifier loaded successfully.")
+except Exception as e:
+    print(f"WARNING: Could not initialize sentiment pipeline. Error: {e}")
+    classifier = None
+
+def compute_text_score(
+    text: str, 
+    is_legal_proceedings: int = 0, 
+    convicted_financial_crime: int = 0
+) -> float:
+    """
+    Computes a strict risk score (0 to 100) based on text sentiment for credit assessment.
+    
+    This function implements:
+    1. Stricter amplification of negative sentiment.
+    2. A base risk floor for any analyzed text.
+    3. An external risk penalty for legal/financial crime issues.
+
+    :param text: Text content (e.g., 'notes').
+    :param is_legal_proceedings: 1 if applicant has legal issues, 0 otherwise.
+    :param convicted_financial_crime: 1 if applicant has financial crime conviction, 0 otherwise.
+    :return: Risk score (0=Low, 100=High).
+    """
+    
+    # Define amplification factors and minimum risk
+    NEGATIVE_AMPLIFICATION_FACTOR = 1.2
+    MINIMUM_TEXT_RISK = 10.0  # Even positive notes carry some minimal risk in lending
+
+    # --- 1. Base Score Calculation (50.0 if empty or model fails) ---
+    if classifier is None:
+        return 50.0
+
+    if pd.isna(text) or str(text).strip() == "":
+        return 50.0  # Neutral score for missing text
+
+    try:
+        result = classifier(str(text))[0]
+        label = result['label']
+        score = result['score'] * 100
+
+        if label == 'NEGATIVE':
+            # Amplification: Increase the risk score to make negative sentiment more impactful
+            risk_score = score * NEGATIVE_AMPLIFICATION_FACTOR
+        elif label == 'POSITIVE':
+            # Risk is 100 - score. If 90% positive, risk is 10%.
+            risk_score = 100 - score
+        else:
+            risk_score = 50.0
+
+        # --- 2. Apply Stricter Screening Rules ---
+        
+        # A. Apply Minimum Risk Floor (Ensures score is never below MINIMUM_TEXT_RISK)
+        risk_score = max(risk_score, MINIMUM_TEXT_RISK)
+
+        # B. Apply External Risk Penalty (From previous risk factors)
+        external_penalty = 0.0
+        
+        # Stricter screening: Conviction adds a heavy penalty
+        if convicted_financial_crime == 1:
+            external_penalty += 30.0 # Heavy penalty for financial crime
+        
+        # Legal proceedings add a moderate penalty
+        if is_legal_proceedings == 1:
+            external_penalty += 15.0 # Moderate penalty for legal issues
+            
+        final_risk_score = risk_score + external_penalty
+
+        # C. Ensure score is capped between 0 and 100
+        return round(min(final_risk_score, 100.0), 2)
+
+    except Exception as e:
+        # Fallback for errors
+        return 50.0
