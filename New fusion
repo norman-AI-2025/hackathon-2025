@@ -1,0 +1,91 @@
+import pandas as pd
+from typing import Callable, Any
+import numpy as np
+
+# NOTE: The compute_numeric_risk_scores function is assumed to have been run 
+# prior to this fusion step, or is called internally if the 'numeric_score' is missing.
+
+# ==============================================================================
+# FUSION FUNCTION
+# ==============================================================================
+
+def compute_fusion_risk(
+    df: pd.DataFrame,
+    # The signature requires the callable to accept text (str) and return float (risk score), 
+    # but our specific implementation (compute_text_score) also requires two legal flags.
+    # We use Any here to represent the actual, more complex signature of the passed function.
+    compute_text_score: Callable[[str, Any, Any], float], 
+    compute_numeric_risk_scores: Callable[[pd.DataFrame], pd.DataFrame],
+    numeric_col: str = 'numeric_score',
+    text_col: str = 'notes',
+    # Alpha represents the weight for the NUMERIC score (0.70 in the original code)
+    alpha: float = 0.70  
+) -> pd.DataFrame:
+    """
+    Fuses numeric and text risk scores into a single final risk score (0-100).
+
+    This function relies on the DataFrame having columns for legal proceedings and 
+    financial crimes, which are passed to the compute_text_score function.
+    
+    :param df: DataFrame containing all applicant data (numeric + text).
+    :param compute_text_score: The function (Callable) to calculate the sentiment score.
+    :param compute_numeric_risk_scores: The function to calculate the numeric score if missing.
+    :param numeric_col: Name of the column containing the numeric risk score.
+    :param text_col: Name of the column containing text/notes for sentiment analysis.
+    :param alpha: Weight assigned to the numeric score (1 - alpha is the sentiment weight).
+    :return: DataFrame with 'numeric_score', 'text_score', and 'risk_score'.
+    """
+
+    df_scored = df.copy()
+
+    # --- 1. Ensure Numeric Score Exists ---
+    if numeric_col not in df_scored.columns:
+        print(f" -> Column '{numeric_col}' not found. Running numeric model first...")
+        df_scored = compute_numeric_risk_scores(df_scored)
+
+    # --- 2. Compute Sentiment (Text) Score ---
+    print(" -> Calculating text scores...")
+    
+    # We must use .apply(lambda row) to pass the additional required arguments 
+    # (is_legal_proceedings and convicted_financial_crime) to compute_text_score.
+    df_scored["text_score"] = df_scored.apply(
+        lambda row: compute_text_score(
+            row[text_col],
+            is_legal_proceedings=row['is_in_legal_proceedings'],
+            convicted_financial_crime=row['convicted_financial_crime']
+        ),
+        axis=1
+    )
+
+
+    # --- 3. Fusion: Numeric + Text ---
+    
+    # Clip alpha to ensure it's between 0 and 1
+    alpha = max(0.0, min(1.0, alpha))
+    sentiment_weight = (1 - alpha)
+    
+    # Ensure scores are within [0,100] before fusion
+    df_scored[numeric_col] = df_scored[numeric_col].clip(0, 100)
+    df_scored["text_score"] = df_scored["text_score"].clip(0, 100)
+
+    print(f" -> Fusing scores (Numeric Weight: {alpha*100:.0f}%, Text Weight: {sentiment_weight*100:.0f}%)...")
+    
+    # Weighted Average for Final Risk Score
+    df_scored["risk_score"] = (alpha * df_scored[numeric_col]) + (sentiment_weight * df_scored["text_score"])
+    
+    # Final cleanup and categorization
+    df_scored["risk_score"] = df_scored["risk_score"].clip(0, 100)
+
+    # --- 4. Categorize the final risk score ---
+    def categorize_risk(score):
+        if score >= 70:
+            return "High Risk"
+        elif score >= 30:
+            return "Medium Risk"
+        else:
+            return "Low Risk"
+
+    df_scored["risk_label"] = df_scored["risk_score"].apply(categorize_risk)
+    print(" -> Fusion complete and risk labels assigned.")
+
+    return df_scored
