@@ -1,0 +1,81 @@
+import pandas as pd
+import numpy as np
+
+def compute_numeric_risk_scores(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Computes a comprehensive risk score (0 to 100) based on numeric, legal, and collateral features.
+
+    Requires columns: 
+        - Applicant_Income, Loan_Amount, Credit_History (Original)
+        - is_in_legal_proceedings (New Boolean: 1 if Yes, 0 if No)
+        - convicted_financial_crime (New Boolean: 1 if Yes, 0 if No)
+        - collateral_market_value (New Float: Market value of collateral)
+
+    Adds: numeric_score
+    """
+    df_copy = df.copy()
+
+    # --- 1. Feature Engineering and Cleaning (Original Financials) ---
+    df_copy['Credit_History'] = df_copy['Credit_History'].fillna(1).astype(int)
+    df_copy['Applicant_Income'] = df_copy['Applicant_Income'].fillna(df_copy['Applicant_Income'].mean())
+    df_copy['Loan_Amount'] = df_copy['Loan_Amount'].fillna(df_copy['Loan_Amount'].mean())
+    
+    # --- 2. Feature Engineering and Cleaning (New Legal/Collateral Data) ---
+    
+    # Fill missing new boolean fields with 0 (No risk)
+    df_copy['is_in_legal_proceedings'] = df_copy['is_in_legal_proceedings'].fillna(0).astype(int)
+    df_copy['convicted_financial_crime'] = df_copy['convicted_financial_crime'].fillna(0).astype(int)
+    df_copy['collateral_market_value'] = df_copy['collateral_market_value'].fillna(0)
+
+
+    # --- 3. Normalization and Risk Indicator Calculation ---
+    
+    # Normalizing Original Risk Indicators (0 to 1)
+    max_income = df_copy['Applicant_Income'].max()
+    df_copy['Income_Risk_Indicator'] = 1 - (df_copy['Applicant_Income'] / max_income) # Lower income = Higher risk
+    max_loan = df_copy['Loan_Amount'].max()
+    df_copy['Loan_Risk_Indicator'] = df_copy['Loan_Amount'] / max_loan # Higher loan amount = Higher risk
+    df_copy['Credit_Risk_Indicator'] = 1 - df_copy['Credit_History'] # Credit_History=1 (Good) -> Risk=0
+    
+    # Normalizing New Risk Indicators (0 to 1)
+    
+    # Legal Risk: Directly use boolean flags (1 = Max Risk, 0 = No Risk)
+    df_copy['Legal_Risk_Indicator'] = df_copy['is_in_legal_proceedings'] + df_copy['convicted_financial_crime']
+    # Cap legal risk at 1 (if both are true)
+    df_copy['Legal_Risk_Indicator'] = df_copy['Legal_Risk_Indicator'].clip(0, 1) 
+
+    # Collateral Risk: Calculates risk based on collateral covering the loan amount.
+    # Risk is 1 - (Collateral Value / Loan Amount). 
+    # If collateral >= Loan Amount, Risk is 0. If collateral = 0, Risk is 1.
+    df_copy['Collateral_Coverage'] = df_copy['collateral_market_value'] / df_copy['Loan_Amount']
+    df_copy['Collateral_Risk_Indicator'] = 1 - df_copy['Collateral_Coverage'].clip(0, 1) # Clip at 100% coverage
+    
+    # --- 4. Simple Risk Calculation (Weighted Average) ---
+    
+    # Total Weight must sum to 100:
+    # Original (30+40+30=100) now reduced to 80, New (Legal+Collateral) get 20.
+    
+    # New Weights:
+    # Loan Amount (40%) -> 30%
+    # Income (30%) -> 20%
+    # Credit History (30%) -> 30%
+    # Legal Issues (10%)
+    # Collateral Value (10%)
+    
+    df_copy['numeric_score'] = (
+        (df_copy['Loan_Risk_Indicator'] * 30) +         # Loan Amount Risk (30%)
+        (df_copy['Income_Risk_Indicator'] * 20) +        # Income Risk (20%)
+        (df_copy['Credit_Risk_Indicator'] * 30) +        # Credit History Risk (30%)
+        (df_copy['Legal_Risk_Indicator'] * 10) +         # Legal/Crime Risk (10%)
+        (df_copy['Collateral_Risk_Indicator'] * 10)       # Collateral Coverage Risk (10%)
+    )
+
+    df_copy['numeric_score'] = df_copy['numeric_score'].clip(0, 100)
+    
+    # Clean up intermediate columns
+    df_copy.drop(columns=[
+        'Income_Risk_Indicator', 'Loan_Risk_Indicator', 'Credit_Risk_Indicator',
+        'Legal_Risk_Indicator', 'Collateral_Coverage', 'Collateral_Risk_Indicator'
+    ], inplace=True, errors='ignore')
+
+    return df_copy
