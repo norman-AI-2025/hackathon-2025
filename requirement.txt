@@ -1,0 +1,6 @@
+Setup guideline:
+
+1. Click to enter file 
+2. Run the code inside the file
+3. Click the url displayed 
+4. Choose the type of loan application and enter details to get analysis
