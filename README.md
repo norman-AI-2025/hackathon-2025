@@ -28,7 +28,7 @@ The system provides **clear explanations** for each decision, ensuring full tran
 Developing an algorithm that accurately analyzes context from unstructured text inputs.
 
 ### 2. Generating Appropriate Responses
-Designing a mechanism that produces relevant and meaningful responses based on the user’s reasoning or explanations.
+Designing a mechanism that produces clear explnation and transparent decision based on the user’s financial and text reasoning.
 
 ### 3. Fusion of Numeric and Text Scoring Systems
 Building an algorithm that finds the **right balance** between numerical metrics and text-based reasoning to produce a final, accurate risk score.
