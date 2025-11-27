@@ -1,5 +1,5 @@
 # Code Fest Hacakathon
-**Team: If You Stress, Don't Stress**
+**Team: When you stress don't stress**
 - Norman Lee Weng Hong
 - Daniel Goh Zhi Qian
 - Vincent Loh Yong Sheng
